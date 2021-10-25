@@ -19,6 +19,8 @@ Note that the official SDK is modified within this package due to some bugs or u
 
 This is a Catkin package. Make sure the package is on `ROS_PACKAGE_PATH` after cloning the package to your workspace. And the normal procedure for compiling a catkin package will work.
 
+You also need to download the [trigger_msgs](https://gitlab.com/neufieldrobotics/trigger_msgs) package to compile it. Clone them in the same workspace.
+
 ```
 cd your_work_space
 catkin_make --pkg imu_vn_100 --cmake-args -DCMAKE_BUILD_TYPE=Release
