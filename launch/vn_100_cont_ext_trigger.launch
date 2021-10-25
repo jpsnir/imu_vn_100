@@ -9,7 +9,7 @@
 
     <!-- Sync out settings -->
     <!-- to disable this just set it to < 0 -->
-    <arg name="sync_rate" default="0"/>
+    <arg name="sync_rate" default="100"/>
     <arg name="sync_pulse_width_us" default="1000"/>
 
     <!-- Time to use settings -->
@@ -19,8 +19,7 @@
     <arg name="binary_output" default="true"/>
     <arg name="binary_async_mode" default="1"/>
 
-    <arg name="imu_compensated" default="2" />
-    <!-- 0 - uncompensated only, 1 - compensated only, 2 - both compensated and uncompensated -->
+    <arg name="imu_compensated" default="1"/>
 
     <!-- VPE settings -->
     <arg name="vpe_enable" default="true"/>
@@ -29,7 +28,7 @@
     <arg name="vpe_tuning_mode" default="1"/>
 
     <!-- Ros Topic settings -->
-    <arg name="enable_mag" default="false"/>
+    <arg name="enable_mag" default="true"/>
     <arg name="enable_pres" default="true"/>
     <arg name="enable_temp" default="true"/>
     <arg name="enable_rpy" default="false"/>

@@ -28,7 +28,11 @@ using sensor_msgs::Imu;
 using sensor_msgs::MagneticField;
 using sensor_msgs::FluidPressure;
 using sensor_msgs::Temperature;
-
+enum class IMU_data_opts{
+  uncompensated = 0,
+  compensated = 1,
+  both = 2
+};
 void RosVector3FromVnVector3(geometry_msgs::Vector3& ros_vec3,
                              const VnVector3& vn_vec3);
 void RosQuaternionFromVnQuaternion(geometry_msgs::Quaternion& ros_quat,
@@ -119,7 +123,7 @@ void ImuVn100::LoadParameters() {
   pnh_.param("binary_output", binary_output_, true);
   pnh_.param("binary_async_mode", binary_async_mode_,
              BINARY_ASYNC_MODE_SERIAL_2);
-  pnh_.param("imu_compensated", imu_compensated_, false);	
+  pnh_.param("imu_compensated", imu_compensated_, 0);	
   pnh_.param("vpe/enable", vpe_enable_, true);
   pnh_.param("vpe/heading_mode", vpe_heading_mode_, 1);
   pnh_.param("vpe/filtering_mode", vpe_filtering_mode_, 1);
@@ -151,11 +155,34 @@ void ImuVn100::LoadParameters() {
 
 void ImuVn100::CreateDiagnosedPublishers() {
   imu_rate_double_ = imu_rate_;
-  pd_imu_.Create<Imu>(pnh_, "imu", updater_, imu_rate_double_);
-  if (enable_mag_) {
-    pd_mag_.Create<MagneticField>(pnh_, "magnetic_field", updater_,
+  if (imu_compensated_ == 0){
+    pd_imu_uncomp_.Create<Imu>(pnh_,"imu_uncompensated",updater_,imu_rate_double_);
+    if (enable_mag_) {
+    pd_mag_uncomp_.Create<MagneticField>(pnh_, "magnetic_field_uncomp", updater_,
                                   imu_rate_double_);
+    }
   }
+  else if (imu_compensated_== 1){
+    pd_imu_comp_.Create<Imu>(pnh_,"imu_compensated",updater_,imu_rate_double_);
+    if (enable_mag_) {
+    pd_mag_comp_.Create<MagneticField>(pnh_, "magnetic_field_comp", updater_,
+                                  imu_rate_double_);
+    }
+  }
+  else if (imu_compensated_== 2){
+    pd_imu_uncomp_.Create<Imu>(pnh_,"imu_uncompensated",updater_,imu_rate_double_);
+    pd_imu_comp_.Create<Imu>(pnh_,"imu_compensated",updater_,imu_rate_double_);
+    if (enable_mag_) {
+      pd_mag_comp_.Create<MagneticField>(pnh_, "magnetic_field_compensated", updater_,
+                                    imu_rate_double_);
+    }
+  }
+
+  //pd_imu_.Create<Imu>(pnh_, "imu", updater_, imu_rate_double_);
+  // if (enable_mag_) {
+  //   pd_mag_.Create<MagneticField>(pnh_, "magnetic_field", updater_,
+  //                                 imu_rate_double_);
+  // }
   if (enable_pres_) {
     pd_pres_.Create<FluidPressure>(pnh_, "fluid_pressure", updater_,
                                    imu_rate_double_);
@@ -344,7 +371,15 @@ void ImuVn100::Stream(bool async) {
       std::list<std::string> sgrp3;
       uint16_t grp5 = BG5_NONE;
       std::list<std::string> sgrp5;
-      if (imu_compensated_) {
+      if (imu_compensated_== 0){
+        grp1 |=  BG1_IMU;
+        sgrp1.push_back("BG1_IMU");
+        if (enable_mag_) {
+          grp3 |= BG3_UNCOMP_MAG;
+          sgrp3.push_back("BG3_UNCOMP_MAG");
+        }
+      }
+      else if(imu_compensated_== 1){
         grp1 |=  BG1_ACCEL | BG1_ANGULAR_RATE;
         sgrp1.push_back("BG1_ACCEL");
         sgrp1.push_back("BG1_ANGULAR_RATE");
@@ -352,12 +387,15 @@ void ImuVn100::Stream(bool async) {
           grp3 |= BG3_MAG;
           sgrp3.push_back("BG3_MAG");
         }
-      } else {
-        grp1 |=  BG1_IMU;
+      }
+      else if(imu_compensated_== 2){
+        grp1 |=  BG1_IMU | BG1_ACCEL | BG1_ANGULAR_RATE;
         sgrp1.push_back("BG1_IMU");
+        sgrp1.push_back("BG1_ACCEL");
+        sgrp1.push_back("BG1_ANGULAR_RATE");
         if (enable_mag_) {
-          grp3 |= BG3_UNCOMP_MAG;
-          sgrp3.push_back("BG3_UNCOMP_MAG");
+          grp3 |= BG3_MAG; // |BG3_UNCOMP_MAG;
+          sgrp3.push_back("BG3_COMP_MAG");
         }
       }
       if (enable_temp_) {
@@ -449,9 +487,10 @@ void ImuVn100::Disconnect() {
   vn100_disconnect(&imu_);
 }
 
-void ImuVn100::PublishData(const VnDeviceCompositeData& data) {
-  sensor_msgs::Imu imu_msg;
-  imu_msg.header.stamp = ros::Time::now();
+void ImuVn100::PublishData(const VnDeviceCompositeData& data) {  
+  std_msgs::Header header;
+  ros::Duration duration;
+  ROS_INFO("publishing");
   if (use_imu_clock)
   {
 	  if(is_first_data_point)
@@ -464,33 +503,80 @@ void ImuVn100::PublishData(const VnDeviceCompositeData& data) {
 	  //convert time to int32 seconds and int32 nanoseconds to prevent overflow of buffer
 	  int32_t seconds = (data.timeStartup - nanoseconds_till_first_data_point)/NANOSEC_TO_SEC;
 	  int32_t nanoseconds = (data.timeStartup-nanoseconds_till_first_data_point)%NANOSEC_TO_SEC;
-	  ros::Duration duration(seconds,nanoseconds);
+	  ros::Duration duration1(seconds,nanoseconds);
+    duration = duration1;
 	  //ROS_INFO_STREAM(" the duration is = "<<duration);
-	  imu_msg.header.stamp = start_of_node_ros_time + duration;
+	  
 	  //double time_diff = imu_msg.header.stamp.toSec() - ros::Time::now().toSec();
 	  //ROS_INFO("the time difference between IMU time clock and ros time clock = %lf", time_diff);
   }
-  imu_msg.header.frame_id = frame_id_;
-  if (imu_compensated_) {
-    RosVector3FromVnVector3(imu_msg.linear_acceleration, data.acceleration);
-    RosVector3FromVnVector3(imu_msg.angular_velocity, data.angularRate);
+  header.stamp = start_of_node_ros_time + duration;
+  header.frame_id = frame_id_;
+  if(imu_compensated_==0){ //uncompensated
+    sensor_msgs::Imu imu_msg_uncompensated;
+    imu_msg_uncompensated.header.stamp = header.stamp;
+    imu_msg_uncompensated.header.frame_id = header.frame_id;
+    RosVector3FromVnVector3(imu_msg_uncompensated.angular_velocity,
+                             data.accelerationUncompensated);
+    RosVector3FromVnVector3(imu_msg_uncompensated.linear_acceleration,
+                             data.angularRateUncompensated);
+    if (binary_output_) {
+      RosQuaternionFromVnQuaternion(imu_msg_uncompensated.orientation, data.quaternion);
+    }
+    pd_imu_uncomp_.Publish(imu_msg_uncompensated);
+  }
+  else if (imu_compensated_==1){ //compensated
+    sensor_msgs::Imu imu_msg_compensated;
+    imu_msg_compensated.header.stamp = header.stamp;
+    imu_msg_compensated.header.frame_id = header.frame_id;
+    RosVector3FromVnVector3(imu_msg_compensated.linear_acceleration, data.acceleration);
+    RosVector3FromVnVector3(imu_msg_compensated.angular_velocity, data.angularRate);
+    if (binary_output_) {
+      RosQuaternionFromVnQuaternion(imu_msg_compensated.orientation, data.quaternion);
+    }
+    pd_imu_comp_.Publish(imu_msg_compensated);
+  }
+  else if (imu_compensated_==2){ //both
+    sensor_msgs::Imu imu_msg_uncompensated;
+    sensor_msgs::Imu imu_msg_compensated;
     
-  } else {
-    // NOTE: The IMU angular velocity and linear acceleration outputs are
-    // swapped. And also why are they different?
-    RosVector3FromVnVector3(imu_msg.angular_velocity,
-                            data.accelerationUncompensated);
-    RosVector3FromVnVector3(imu_msg.linear_acceleration,
-                            data.angularRateUncompensated);
+    imu_msg_uncompensated.header.stamp = header.stamp;
+    imu_msg_compensated.header.stamp = header.stamp;
+
+    imu_msg_uncompensated.header.frame_id = header.frame_id;
+    imu_msg_compensated.header.frame_id = header.frame_id;
+    RosVector3FromVnVector3(imu_msg_uncompensated.angular_velocity,
+                             data.accelerationUncompensated);
+    RosVector3FromVnVector3(imu_msg_uncompensated.linear_acceleration,
+                             data.angularRateUncompensated);
+
+    RosVector3FromVnVector3(imu_msg_compensated.linear_acceleration, data.acceleration);
+    RosVector3FromVnVector3(imu_msg_compensated.angular_velocity, data.angularRate);
+    if (binary_output_) {
+      RosQuaternionFromVnQuaternion(imu_msg_uncompensated.orientation, data.quaternion);
+      RosQuaternionFromVnQuaternion(imu_msg_compensated.orientation, data.quaternion);
+    }
+    pd_imu_uncomp_.Publish(imu_msg_uncompensated);
+    pd_imu_comp_.Publish(imu_msg_compensated);
   }
-  if (binary_output_) {
-    RosQuaternionFromVnQuaternion(imu_msg.orientation, data.quaternion);
-  }
-  pd_imu_.Publish(imu_msg);
+
+  // if (imu_compensated_) {
+  //   RosVector3FromVnVector3(imu_msg.linear_acceleration, data.acceleration);
+  //   RosVector3FromVnVector3(imu_msg.angular_velocity, data.angularRate);
+    
+  // } else {
+  //   // NOTE: The IMU angular velocity and linear acceleration outputs are
+  //   // swapped. And also why are they different?
+  //   RosVector3FromVnVector3(imu_msg.angular_velocity,
+  //                           data.accelerationUncompensated);
+  //   RosVector3FromVnVector3(imu_msg.linear_acceleration,
+  //                           data.angularRateUncompensated);
+  // }
+  
 
   if (enable_rpy_) {
     Vector3Stamped rpy_msg;
-    rpy_msg.header= imu_msg.header;
+    rpy_msg.header= header;
     rpy_msg.vector.z = data.ypr.yaw * M_PI/180.0;
     rpy_msg.vector.y = data.ypr.pitch * M_PI/180.0;
     rpy_msg.vector.x = data.ypr.roll * M_PI/180.0;
@@ -499,32 +585,32 @@ void ImuVn100::PublishData(const VnDeviceCompositeData& data) {
 
   if (enable_mag_) {
     sensor_msgs::MagneticField mag_msg;
-    mag_msg.header = imu_msg.header;
+    mag_msg.header = header;
     RosVector3FromVnVector3(mag_msg.magnetic_field, data.magnetic);
     pd_mag_.Publish(mag_msg);
   }
 
   if (enable_pres_) {
     sensor_msgs::FluidPressure pres_msg;
-    pres_msg.header = imu_msg.header;
+    pres_msg.header = header;
     pres_msg.fluid_pressure = data.pressure;
     pd_pres_.Publish(pres_msg);
   }
 
   if (enable_temp_) {
     sensor_msgs::Temperature temp_msg;
-    temp_msg.header = imu_msg.header;
+    temp_msg.header = header;
     temp_msg.temperature = data.temperature;
     pd_temp_.Publish(temp_msg);
   }
-  sync_info_.Update(data.syncInCnt, imu_msg.header.stamp);
+  sync_info_.Update(data.syncInCnt, header.stamp);
   if (sync_info_.SyncEnabled()){
     trigger_msgs::sync_trigger sync_trigger_msg;
     syncOutCnt = data.syncOutCnt;
      ROS_INFO("out of loop syncOutCount = %d",data.syncOutCnt);
         if (syncOutCnt != syncOutCnt_old)
         {
-            sync_trigger_msg.header = imu_msg.header;
+            sync_trigger_msg.header = header;
             sync_trigger_msg.count = syncOutCnt;
             ROS_INFO("in loop syncOutCount = %d",syncOutCnt);
             pd_sync_trigger.Publish(sync_trigger_msg);
@@ -532,7 +618,7 @@ void ImuVn100::PublishData(const VnDeviceCompositeData& data) {
     syncOutCnt_old = syncOutCnt;
   }
 
-  sync_info_.Update(data.syncInCnt, imu_msg.header.stamp);
+  sync_info_.Update(data.syncInCnt, header.stamp);
   updater_.update();
 }
 

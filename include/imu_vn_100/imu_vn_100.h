@@ -20,6 +20,7 @@
 #include <ros/ros.h>
 #include <diagnostic_updater/diagnostic_updater.h>
 #include <diagnostic_updater/publisher.h>
+#include <std_msgs/Header.h>
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/MagneticField.h>
 #include <sensor_msgs/FluidPressure.h>
@@ -124,7 +125,7 @@ class ImuVn100 {
   bool binary_output_ = true;
   int binary_async_mode_ = BINARY_ASYNC_MODE_SERIAL_2;
 
-  bool imu_compensated_ = false;
+  int imu_compensated_ = 0;
 
   bool tf_ned_to_enu_ = false;
 
@@ -149,7 +150,8 @@ class ImuVn100 {
   SyncInfo sync_info_;
 
   du::Updater updater_;
-  DiagnosedPublisher pd_imu_, pd_mag_, pd_pres_, pd_temp_, pd_rpy_, pd_sync_trigger;
+  DiagnosedPublisher pd_imu_,pd_imu_comp_,pd_imu_uncomp_, pd_mag_,pd_mag_comp_;
+  DiagnosedPublisher pd_mag_uncomp_, pd_pres_, pd_temp_, pd_rpy_, pd_sync_trigger;
 
   void FixImuRate();
   void LoadParameters();
